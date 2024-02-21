@@ -1,0 +1,26 @@
+[
+    {
+        "id": 1,
+        "name": "test 123",
+        "releaseYear": 1998,
+        "duration": 90
+    },
+    {
+        "id": 2,
+        "name": "expandables",
+        "releaseYear": 2008,
+        "duration": 120
+    },
+    {
+        "id": 3,
+        "name": "intersteller",
+        "releaseYear": 2014,
+        "duration": 80
+    },
+    {
+        "id": 4,
+        "name": "test",
+        "releaseYear": 2018,
+        "duration": 150
+    }
+]
