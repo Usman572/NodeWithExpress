@@ -1,100 +1,186 @@
-const fs = require('fs');
-let movies = JSON.parse(fs.readFileSync('./data/movies.json'));
-const checkId = (req, res, next, value) => {
-    console.log('Movie ID is ' + value);
-    // FIND MOVIE BASED ON PARAMETER
-    let movie = movies.find(el => el.id === value * 1);
-    if (!movie) {
-        return res.status(404).json({
-            status: "fail",
-            message: "Movie With ID " + value + " is not found"
-        })
-    }
-    next();
-}
-const validateBody = (req, res, next) => {
-    if (!req.body.name || !req.body.releaseYear) {
-        return res.status(400).json({
-            status: 'fail',
-            message: 'Not a valid movie data'
-        })
-    }
-    next();
-}
+const Movie = require("../models/movieModel.js");
+const ApiFeatures = require('../utils/ApiFeatures.js');
+const CustomError = require("../utils/CustomError.js");
+const asyncErrorHandler = require("../utils/asyncErrorHandler.js");
 // GET API-MOVIES
-const getAllMovies = (req, res) => {
-    res.status(200).json({
-        status: "success",
-        requestedAt: req.requestedAt,
-        count: movies.length,
-        data: {
-            movies: movies
-        }
-    })
-}
+const getAllMovies = asyncErrorHandler(async (req, res, next) => {
+    try {
+        // Declare the query variable using let
+        let query = Movie.find();
+
+        // Create an instance of ApiFeatures
+        const features = new ApiFeatures(query, req.query)
+        .filter()
+        .sort()
+        .limitFields()
+        .paginate();
+
+        // Execute the filtered query
+        const movies = await features.query;
+        res.status(200).json({
+            status: 'success',
+            length: movies.length,
+            data: {
+                movies
+            }
+        });
+    } catch (err) {
+        res.status(400).json({
+            status: 'fail',
+            message: err.message
+        });
+    }
+});
 
 // get Movie by id
-const getMovieById = (req, res) => {
-    // CONVERT ID INTO NUMERIC
-    const id = req.params.id * 1;
-    let movie = movies.find(el => el.id === id);
-    // SEND MOVIE IN RESPONSE
-    res.status(200).json({
-        status: "success",
-        data: {
-            movie: movie
+const getMovieById = async (req, res, next) => {
+    try {
+        const movie = await Movie.findById(req.params.id);
+        if(!movie){
+            const error = new CustomError('Movie with that ID is not found!', 404);
+            return next(error);
         }
-    });
-}
+        res.status(200).json({
+            status: "success",
+            data: {
+                movie
+            }
+        });
+    } catch (err) {
+        res.status(404).json({
+            status: "fail",
+            message: err.message
+        });
+    }
+};
 
 //  Create Movie 
-const createMovie = (req, res) => {
-    const newId = movies[movies.length - 1].id + 1;
-    const newMovie = Object.assign({ id: newId }, req.body);
-    movies.push(newMovie);
-    fs.writeFile('./src/data/movies.json', JSON.stringify(movies), (err) => {
+const createMovie = async (req, res) => {
+    try {
+        const movie = await Movie.create(req.body);
         res.status(201).json({
             status: "success",
             data: {
-                movie: newMovie
+                movie
             }
-        })
-    })
-}
+        });
+    } catch (err) {
+        res.status(400).json({
+            status: 'fail',
+            message: err.message
+        });
+    }
+};
 
 // update Movie 
-const updateMovie = (req, res) => {
-    // CONVERT ID INTO NUMERIC
-    let id = req.params.id * 1;
-    let movieToUpdate = movies.find(el => el.id === id);
-    let index = movies.indexOf(movieToUpdate);
-    Object.assign(movieToUpdate, req.body);
-    movies[index] = movieToUpdate;
-    fs.writeFile('./src/data/movies.json', JSON.stringify(movies), (err) => {
+const updateMovie = async (req, res, next) => {
+    try {
+        const updatedMovie = await Movie.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
+        if(!updateMovie){
+            const error = new CustomError('Movie with that ID is not found!', 404);
+            return next(error);
+        }
         res.status(200).json({
-            status: 'sucsess',
+            status: 'success',
             data: {
-                movie: movieToUpdate
+                movie: updatedMovie
             }
+        });
+    } catch (err) {
+        res.status(400).json({
+            status: 'fail',
+            message: err.message
         })
-    })
+    }
 }
 
 // delete Movie 
-const deleteMovie = (req, res) => {
-    // CONVERT ID INTO NUMERIC
-    let id = req.params.id * 1;
-    let movieToDelete = movies.find(el => el.id === id)
-    let index = movies.indexOf(movieToDelete);
-    movies.splice(index, 1);
-    fs.writeFile("./src/data/movies.json", JSON.stringify(movies), (err) => {
-        res.status(204).json({
-            status: "success",
+const deleteMovie = async (req, res) => {
+    try {
+        await Movie.findByIdAndDelete(req.params.id);
+        if(!deleteMovie){
+            const error = new CustomError('Movie with that ID is not found!', 404);
+            return next(error);
+        }
+        res.status(200).json({
+            status: 'success',
+            data: null
+        });
+    } catch (err) {
+        res.status(400).json({
+            status: 'fail',
+            message: err.message
+        })
+    }
+}
+const getMovieStats = async (req, res) => {
+    try {
+        const stats = await Movie.aggregate([
+            { $match: { releaseDate: { $lte: new Date() } } },
+            { $match: { ratings: { $gte: 4.5 } } },
+            {
+                $group: {
+                    _id: '$releaseYear',
+                    avgRating: { $avg: '$ratings' },
+                    avgPrice: { $avg: '$price' },
+                    minPrice: { $min: '$price' },
+                    maxPrice: { $max: '$price' },
+                    priceTotal: { $sum: '$price' },
+                    movieCount: { $sum: 1 }
+                }
+            },
+            { $sort: { minPrice: 1 } }
+            // {$match: {maxPrice : {$gte: 60}}}
+        ]);
+
+        res.status(200).json({
+            status: 'success',
+            count: stats.length,
             data: {
-                movie: null
+                stats
+            }
+        });
+    } catch (err) {
+        res.status(404).json({
+            status: 'fail',
+            message: err.message
+        });
+    }
+};
+const getMovieByGenre = async (req, res) => {
+    try {
+        const genre = req.params.genre;
+        const movies = await Movie.aggregate([
+            { $match: { releaseDate: { $lte: new Date() } } },
+            { $unwind: '$genres' },
+            {
+                $group: {
+                    _id: '$genres',
+                    movieCount: { $sum: 1 },
+                    movies: { $push: '$name' }
+                }
+            },
+            { $addFields: { genre: '$_id' } },
+            { $project: { _id: 0 } },
+            { $sort: { movieCount: -1 } },
+            // {$limit: 6}
+            { $match: { genre: genre } }
+        ]);
+        res.status(200).json({
+            status: 'success',
+            count: movies.length,
+            data: {
+                movies
             }
         })
-    })
+    } catch (err) {
+        res.status(404).json({
+            status: 'success',
+            data: {
+                message: err.message
+            }
+        })
+    }
 }
 // Exporting function
 module.exports = {
@@ -103,6 +189,6 @@ module.exports = {
     createMovie,
     updateMovie,
     deleteMovie,
-    checkId,
-    validateBody
+    getMovieStats,
+    getMovieByGenre
 };
